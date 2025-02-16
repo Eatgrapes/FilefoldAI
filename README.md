@@ -18,7 +18,7 @@ FilefoldAI 是一个基于 Python 的文件整理工具，它通过 Gemini 2.0 F
 
 ## 如何使用？ 🤔
 ### 下载文件
-首先点击大绿色按钮，点击"Download zip"然后解压到一个地方就可以了
+首先点击大绿色按钮，点击"Download zip"然后解压到一个地方就可以了，或者前往[Release](https://github.com/Eatgrapes/FilefoldAI/releases)下载
 ### 1. 安装依赖
 实际上，你可以直接运行Initialization.py输入完apikey之后会自动安装依赖，但是如果失败的话请手动安装:
 
