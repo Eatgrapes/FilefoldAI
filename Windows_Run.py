@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 import google.generativeai as genai
+from openai import OpenAI  # 新增导入
 
 class FileOrganizerGUI(QWidget):
     def __init__(self):
@@ -50,23 +51,19 @@ class FileOrganizerGUI(QWidget):
             self.dir_input.setText(dir_path)
             self.target_dir = dir_path
             
-    def load_api(self):
+    def load_config(self):
         api_file = Path("FilefoldAI_data/api.json")
         if not api_file.exists():
             QMessageBox.critical(self, "错误", "未找到API配置文件！")
             return None
         with open(api_file, 'r') as f:
-            return json.load(f)['api_key']
+            return json.load(f)
     
     def get_ai_mapping(self, filenames, lang):
-        # 使用与Linux版本相同的优化提示词
-        api_key = self.load_api()
-        if not api_key:
+        config = self.load_config()
+        if not config:
             return {}
 
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.0-flash')
-        
         prompt = f"""根据以下文件名生成分类映射，严格使用{lang}创建文件夹名称：
     分类规则：
  
@@ -75,26 +72,49 @@ class FileOrganizerGUI(QWidget):
     视频类（.mp4/.avi）→ "视频"
     压缩文件（.zip/.rar）→ "压缩包"
     你可以自定义名称
-    还有，如果是其他语言，请不要随便分类，比如一些文件随便分类到other文件夹是不允许的，要思考后分类
+    如果是其他语言，请不要随便分类，比如一些文件随便分类到other文件夹是不允许的，要思考后分类
 
     格式要求：严格使用 {{"filename":"category"}} 的JSON格式
     
     示例输入：["game.exe", "photo.jpg", "unknown_file"]
     示例输出：{{"game.exe": "游戏", "photo.jpg": "图片", "unknown_file": "其他"}}
 
-        实际文件列表：
-        {filenames}
-        """
+    实际文件列表：
+    {filenames}
+    """
         
-        response = model.generate_content(prompt)
+        if config["model_type"] == "gemini":
+            genai.configure(api_key=config['api_key'])
+            model = genai.GenerativeModel('gemini-2.0-flash')
+            response = model.generate_content(prompt)
+            result = response.text
+        else:
+            try:
+                client = OpenAI(
+                    api_key=config['api_key'],
+                    base_url="https://api.deepseek.com"
+                )
+                response = client.chat.completions.create(
+                    model="deepseek-reasoner",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.3,
+                    max_tokens=1024
+                )
+                result = response.choices[0].message.content
+            except Exception as e:
+                QMessageBox.critical(self, "API错误", f"DeepSeek调用失败: {str(e)}")
+                return {}
+
         try:
-            return json.loads(response.text.replace('```json', '').replace('```', ''))
-        except json.JSONDecodeError:
-            QMessageBox.critical(self, "错误", "AI返回格式异常！")
+            cleaned = result.replace('```json', '').replace('```', '').strip()
+            return json.loads(cleaned)
+        except json.JSONDecodeError as e:
+            QMessageBox.critical(self, "格式错误", f"解析失败: {str(e)}\n原始响应: {result[:200]}...")
             return {}
 
     def process_files(self):
         log = []
+        moved_files = 0
         for filename, category in self.mapping.items():
             src = Path(self.target_dir) / filename
             if not src.exists():
@@ -107,11 +127,15 @@ class FileOrganizerGUI(QWidget):
             try:
                 src.rename(dest)
                 log.append(f"文件 '{filename}' 移动到 '{category}'")
+                moved_files += 1
             except Exception as e:
                 log.append(f"移动失败：{filename} → {str(e)}")
         
         # 保存日志
-        if QMessageBox.question(self, "保存日志", "是否保存本次整理日志？") == QMessageBox.StandardButton.Yes:
+        msg = QMessageBox()
+        msg.setText(f"成功移动 {moved_files}/{len(self.mapping)} 个文件\n是否保存日志？")
+        msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if msg.exec() == QMessageBox.StandardButton.Yes:
             log_dir = Path("FilefoldAI_log")
             log_dir.mkdir(exist_ok=True)
             timestamp = time.strftime("%Y%m%d-%H%M%S")
@@ -119,26 +143,34 @@ class FileOrganizerGUI(QWidget):
                 f.write('\n'.join(log))
 
     def start_organize(self):
-        self.target_dir = self.dir_input.text()
+        self.target_dir = self.dir_input.text().strip()
         if not self.target_dir:
             QMessageBox.warning(self, "错误", "请先选择目录！")
             return
 
-        # 修复语言选择逻辑
+        # 语言选择逻辑
         lang_choice = self.lang_combo.currentText()
         if lang_choice == "自定义":
             lang, ok = QInputDialog.getText(self, "输入语言", "请输入分类语言:")
-            if not ok or not lang:
+            if not ok or not lang.strip():
                 QMessageBox.warning(self, "错误", "请输入有效的分类语言！")
                 return
+            lang = lang.strip()
         else:
             lang = lang_choice
 
-        filenames = [f.name for f in Path(self.target_dir).iterdir() if f.is_file()]
+        # 文件检查
+        target_path = Path(self.target_dir)
+        if not target_path.exists():
+            QMessageBox.warning(self, "错误", "目录不存在！")
+            return
+            
+        filenames = [f.name for f in target_path.iterdir() if f.is_file()]
         if not filenames:
             QMessageBox.warning(self, "错误", "目标目录中没有文件！")
             return
 
+        # 处理过程
         QMessageBox.information(self, "提示", "AI正在分析文件，请稍候...")
         self.mapping = self.get_ai_mapping(filenames, lang)
         if self.mapping:
