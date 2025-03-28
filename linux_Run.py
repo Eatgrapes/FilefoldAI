@@ -3,14 +3,14 @@ import json
 import time
 from pathlib import Path
 import google.generativeai as genai
+from openai import OpenAI  # 新增导入
 
-def load_api():
+def load_config():
     with open("FilefoldAI_data/api.json") as f:
-        return json.load(f)['api_key']
+        return json.load(f)
 
 def get_ai_mapping(filenames, lang):
-    genai.configure(api_key=load_api())
-    model = genai.GenerativeModel('gemini-2.0-flash')
+    config = load_config()
     
     # 优化后的提示词模板
     prompt = f"""根据以下文件名生成分类映射，且严格使用{lang}创建文件夹名称：
@@ -21,35 +21,60 @@ def get_ai_mapping(filenames, lang):
     视频类（.mp4/.avi）→ "视频"
     压缩文件（.zip/.rar）→ "压缩包"
     你可以自定义名称
-    还有，如果是其他语言，请不要随便分类，比如一些文件随便分类到other文件夹是不允许的，要思考后分类
+    如果是其他语言，请不要随便分类，比如一些文件随便分类到other文件夹是不允许的，要思考后分类
 
     格式要求：严格使用 {{"filename":"category"}} 的JSON格式
     
     示例输入：["game.exe", "photo.jpg", "unknown_file"]
     示例输出：{{"game.exe": "游戏", "photo.jpg": "图片", "unknown_file": "其他"}}
 
-
     实际文件列表：
     {filenames}
     """
     
-    response = model.generate_content(prompt)
+    if config["model_type"] == "gemini":
+        genai.configure(api_key=config['api_key'])
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        response = model.generate_content(prompt)
+        result = response.text
+    else:
+        client = OpenAI(
+            api_key=config['api_key'],
+            base_url="https://api.deepseek.com"
+        )
+        response = client.chat.completions.create(
+            model="deepseek-reasoner",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=1024
+        )
+        result = response.choices[0].message.content
+    
     try:
-        return json.loads(response.text.replace('```json', '').replace('```', ''))
-    except json.JSONDecodeError:
-        raise ValueError("AI返回格式异常")
+        # 统一处理JSON响应
+        cleaned = result.replace('```json', '').replace('```', '').strip()
+        return json.loads(cleaned)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"AI返回格式异常: {str(e)}，原始响应：{result}")
 
 def main():
-    target_dir = input("请输入要整理的目录路径：")
-    lang_choice = input("选择文件夹语言 (1)中文 (2)英文 (3)自定义：")
+    target_dir = input("请输入要整理的目录路径：").strip()
+    lang_choice = input("选择文件夹语言 (1)中文 (2)英文 (3)自定义：").strip()
     
-    # 修复语言选择逻辑
     if lang_choice == '3':
-        lang = input("请输入自定义语言：")
+        lang = input("请输入自定义语言：").strip()
     else:
         lang = '中文' if lang_choice == '1' else '英文'
 
+    if not os.path.exists(target_dir):
+        print("错误：目录不存在！")
+        return
+
     filenames = [f.name for f in Path(target_dir).iterdir() if f.is_file()]
+    if not filenames:
+        print("目标目录中没有文件！")
+        return
+
     print("AI正在分析文件...")
     try:
         mapping = get_ai_mapping(filenames, lang)
@@ -58,6 +83,7 @@ def main():
         return
     
     log = []
+    moved_files = 0
     for filename, category in mapping.items():
         src = Path(target_dir) / filename
         if not src.exists():
@@ -70,17 +96,19 @@ def main():
         try:
             src.rename(dest)
             log.append(f"文件 '{filename}' 移动到 '{category}'")
+            moved_files += 1
         except Exception as e:
             log.append(f"移动失败：{filename} → {str(e)}")
     
     print("\n移动记录：")
     print('\n'.join(log))
+    print(f"\n成功移动 {moved_files}/{len(mapping)} 个文件")
     
     if input("是否保存日志？(y/n): ").lower() == 'y':
         log_dir = Path("FilefoldAI_log")
         log_dir.mkdir(exist_ok=True)
         timestamp = time.strftime("%Y%m%d-%H%M%S")
-        with open(log_dir / f"log_{timestamp}.txt", 'w') as f:
+        with open(log_dir / f"log_{timestamp}.txt", 'w', encoding='utf-8') as f:
             f.write('\n'.join(log))
 
 if __name__ == "__main__":
