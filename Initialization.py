@@ -4,14 +4,29 @@ import platform
 import subprocess
 import google.generativeai as genai
 from pathlib import Path
+from openai import OpenAI  # 新增DeepSeek依赖
 
-def check_api_validity(api_key):
+def check_api_validity(api_key, model_type):
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.0-flash')
-        response = model.generate_content("Test connection")
-        return response.text is not None
+        if model_type == "gemini":
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel('gemini-2.0-flash')
+            response = model.generate_content("Test connection")
+            return response.text is not None
+        elif model_type == "deepseek":
+            client = OpenAI(
+                api_key=api_key,
+                base_url="https://api.deepseek.com"
+            )
+            response = client.chat.completions.create(
+                model="deepseek-reasoner",
+                messages=[{"role": "user", "content": "Test connection"}],
+                max_tokens=10,
+                temperature=0
+            )
+            return bool(response.choices[0].message.content)
     except Exception as e:
+        print(f"验证错误: {str(e)}")
         return False
 
 def main():
@@ -19,34 +34,47 @@ def main():
     data_dir.mkdir(exist_ok=True)
     api_file = data_dir / "api.json"
 
-    # API存在性检测
+    # 模型选择
+    while True:
+        model_choice = input("请选择AI模型 (1)Gemini (2)DeepSeek-R1: ").strip()
+        if model_choice in ["1", "2"]:
+            model_type = "gemini" if model_choice == "1" else "deepseek"
+            break
+        print("无效选择，请输入1或2")
+
+    # 加载现有配置
+    config = {"api_key": "", "model_type": model_type}
     if api_file.exists() and api_file.stat().st_size > 0:
         with open(api_file, 'r') as f:
-            existing_api = json.load(f).get('api_key', '')
-        choice = input(f"检测到已存在API密钥({existing_api[:4]}...)，是否重新输入？(y/n): ")
+            existing_config = json.load(f)
+            config.update(existing_config)
+
+    # 密钥验证逻辑
+    if config["model_type"] == model_type and config["api_key"]:
+        choice = input(f"检测到已存在{model_type.upper()} API密钥({config['api_key'][:4]}...)，是否重新输入？(y/n): ")
         if choice.lower() != 'y':
             print("跳过API输入步骤...")
             return install_dependencies()
 
-    # API输入与验证循环
+    # API输入验证循环
     while True:
-        api_key = input("请输入Gemini API密钥(获取地址：https://aistudio.google.com/apikey)：")
-        if check_api_validity(api_key):
+        api_key = input(f"请输入{model_type.upper()} API密钥：").strip()
+        if check_api_validity(api_key, model_type):
+            config.update({"api_key": api_key, "model_type": model_type})
             with open(api_file, 'w') as f:
-                json.dump({"api_key": api_key}, f)
+                json.dump(config, f, indent=2)
             break
         else:
             print("\033[91mAPI验证失败！\033[0m")
-            retry = input("是否重新输入？(y/n): ")
-            if retry.lower() != 'y':
+            retry = input("是否重新输入？(y/n): ").strip().lower()
+            if retry != 'y':
                 print("继续使用无效API可能导致后续功能异常！")
                 break
 
-    # 依赖安装逻辑
     install_dependencies()
 
 def install_dependencies():
-    required_packages = ['google-generativeai', 'pyqt6', 'python-dotenv']
+    required_packages = ['google-generativeai', 'pyqt6', 'python-dotenv', 'openai']
     system = platform.system()
     
     # 系统特定依赖
