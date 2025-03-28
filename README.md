@@ -48,7 +48,7 @@ python Initialization.py
 1. 选择要使用的AI模型（Gemini 或 DeepSeek-R1）
 2. 输入对应模型的API密钥：
    - Gemini 密钥获取：[Google AI Studio](https://aistudio.google.com/apikey)
-   - DeepSeek 密钥获取：[DeepSeek Console](https://api.deepseek.com)
+   - DeepSeek 密钥获取：[DeepSeek开发平台](https://platform.deepseek.com/)
 3. 程序会自动验证密钥并安装缺少的依赖
 
 ### 3. 运行整理工具
