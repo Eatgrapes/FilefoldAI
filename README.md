@@ -48,21 +48,20 @@ python Initialization.py
 1. 选择要使用的AI模型（Gemini 或 DeepSeek-R1）
 2. 输入对应模型的API密钥：
    - Gemini 密钥获取：[Google AI Studio](https://aistudio.google.com/apikey)
-   - DeepSeek 密钥获取：[DeepSeek开发平台](https://platform.deepseek.com/)
+   - DeepSeek 密钥获取：[DeepSeek Console](https://api.deepseek.com)
 3. 程序会自动验证密钥并安装缺少的依赖
 
 ### 3. 运行整理工具
 
-#### Linux 用户 🐧
+#### 所有平台用户 💻
 ```bash
-python linux_Run.py
+python Run.py
 ```
+程序会自动检测你的系统环境：
+- 有图形界面时会询问是否使用GUI
+- 无图形界面时自动使用命令行模式
 
-#### Windows 用户 🪟
-直接双击 `Windows_Run.py`，或通过命令行运行：
-```bash
-python Windows_Run.py
-```
+> 💡 提示：Linux系统使用GUI需要桌面环境支持
 
 ---
 
@@ -85,5 +84,3 @@ python Windows_Run.py
 3. **分类不准确**：尝试更换模型或调整提示词
 
 欢迎在项目的 [Issues](https://github.com/Eatgrapes/FilefoldAI/issues) 页面提出来！我们会尽快修复，也可以提意见
-
-(手机版Termux用户建议使用虚拟化环境运行)
