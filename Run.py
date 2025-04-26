@@ -1,3 +1,4 @@
+# FilefoldAI/Run.py
 import os
 import json
 import time
@@ -107,7 +108,7 @@ def run_cli():
     
     # 获取目标目录
     while True:
-        target_dir = input("请输入要整理的目录路径: ").strip()
+        target_dir = input("请输入要整理的目标路径: ").strip()
         if Path(target_dir).exists():
             break
         print("❌ 目录不存在，请重新输入")
@@ -133,6 +134,13 @@ def run_cli():
         print(f"❌ 处理失败: {str(e)}")
         return
     
+    # 初始化撤销日志
+    undo_log = {
+        "timestamp": time.strftime("%Y%m%d-%H%M%S"),
+        "target_dir": str(target_dir),
+        "operations": []
+    }
+    
     # 执行文件移动
     success = 0
     log = []
@@ -142,20 +150,65 @@ def run_cli():
             continue
             
         dest_dir = Path(target_dir) / category
+        dir_exists_before = dest_dir.exists()
         try:
             dest_dir.mkdir(exist_ok=True)
-            src.rename(dest_dir / filename)
+            dest_path = dest_dir / filename
+            src.rename(dest_path)
             log.append(f"成功: {filename} → {category}")
             success += 1
+            # 记录操作到撤销日志
+            undo_log["operations"].append({
+                "src": str(src),
+                "dest": str(dest_path),
+                "dir_created": not dir_exists_before
+            })
         except Exception as e:
             log.append(f"失败: {filename} → {str(e)}")
+    
+    # 保存撤销日志
+    undo_log_dir = Path("FilefoldAI_log/undo")
+    undo_log_dir.mkdir(exist_ok=True, parents=True)
+    undo_log_file = undo_log_dir / f"undo_{undo_log['timestamp']}.json"
+    with open(undo_log_file, 'w', encoding='utf-8') as f:
+        json.dump(undo_log, f, ensure_ascii=False, indent=2)
     
     # 显示结果
     print("\n".join(log))
     print(f"\n✅ 完成: 成功移动 {success}/{len(mapping)} 个文件")
     
+    # 新增撤销功能
+    if success > 0:
+        undo_choice = input("是否要撤销本次整理？(y/n): ").lower()
+        if undo_choice == 'y':
+            undo_success = 0
+            undo_errors = []
+            for op in undo_log["operations"]:
+                src_path = Path(op['src'])
+                dest_path = Path(op['dest'])
+                try:
+                    if dest_path.exists():
+                        dest_path.rename(src_path)
+                        undo_success += 1
+                    # 清理空目录
+                    dest_dir = dest_path.parent
+                    if op['dir_created'] and dest_dir.exists():
+                        if not any(dest_dir.iterdir()):
+                            dest_dir.rmdir()
+                except Exception as e:
+                    undo_errors.append(f"撤销失败: {dest_path.name} → {str(e)}")
+            print(f"已撤销 {undo_success} 个文件")
+            if undo_errors:
+                print("撤销过程中出现错误:")
+                print("\n".join(undo_errors))
+            # 删除撤销日志
+            try:
+                undo_log_file.unlink()
+            except Exception as e:
+                print(f"删除撤销日志失败: {str(e)}")
+    
     # 保存日志
-    if input("是否保存日志？(y/n): ").lower() == 'y':
+    if input("是否保存操作日志？(y/n): ").lower() == 'y':
         log_dir = Path("FilefoldAI_log")
         log_dir.mkdir(exist_ok=True)
         timestamp = time.strftime("%Y%m%d-%H%M%S")
@@ -180,6 +233,8 @@ if GUI_AVAILABLE:
             self.setFixedSize(500, 200)
             self.setup_ui()
             self.mapping = {}
+            self.undo_log = None
+            self.undo_log_file = None
         
         def setup_ui(self):
             """初始化界面组件"""
@@ -253,28 +308,89 @@ if GUI_AVAILABLE:
             success = 0
             target_dir = self.dir_input.text()
             
+            # 初始化撤销日志
+            self.undo_log = {
+                "timestamp": time.strftime("%Y%m%d-%H%M%S"),
+                "target_dir": target_dir,
+                "operations": []
+            }
+            
             for filename, category in self.mapping.items():
                 src = Path(target_dir) / filename
                 if not src.exists():
                     continue
                 
                 dest_dir = Path(target_dir) / category
+                dir_exists_before = dest_dir.exists()
                 try:
                     dest_dir.mkdir(exist_ok=True)
-                    src.rename(dest_dir / filename)
+                    dest_path = dest_dir / filename
+                    src.rename(dest_path)
                     log.append(f"{filename} → {category}")
                     success += 1
+                    # 记录操作到撤销日志
+                    self.undo_log["operations"].append({
+                        "src": str(src),
+                        "dest": str(dest_path),
+                        "dir_created": not dir_exists_before
+                    })
                 except Exception as e:
                     log.append(f"{filename} 失败: {str(e)}")
             
-            # 显示结果
+            # 保存撤销日志
+            undo_log_dir = Path("FilefoldAI_log/undo")
+            undo_log_dir.mkdir(exist_ok=True, parents=True)
+            self.undo_log_file = undo_log_dir / f"undo_{self.undo_log['timestamp']}.json"
+            with open(self.undo_log_file, 'w', encoding='utf-8') as f:
+                json.dump(self.undo_log, f, ensure_ascii=False, indent=2)
+            
+            # 显示结果并询问是否撤销
             msg = QMessageBox()
-            msg.setText(f"完成整理 {success} 个文件\n是否保存日志？")
+            msg.setWindowTitle("整理完成")
+            msg.setText(f"成功整理 {success} 个文件\n是否要撤销本次操作？")
             msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             
             if msg.exec() == QMessageBox.StandardButton.Yes:
-                self.save_log(log)
-        
+                self.undo_organizing()
+            else:
+                if QMessageBox.question(self, "保存日志", "是否保存操作日志？", 
+                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
+                    self.save_log(log)
+
+        def undo_organizing(self):
+            """执行撤销整理操作"""
+            undo_success = 0
+            undo_errors = []
+            for op in self.undo_log["operations"]:
+                src_path = Path(op['src'])
+                dest_path = Path(op['dest'])
+                try:
+                    if dest_path.exists():
+                        dest_path.rename(src_path)
+                        undo_success += 1
+                    # 清理空目录
+                    dest_dir = dest_path.parent
+                    if op['dir_created'] and dest_dir.exists():
+                        if not any(dest_dir.iterdir()):
+                            dest_dir.rmdir()
+                except Exception as e:
+                    undo_errors.append(f"撤销失败: {dest_path.name} → {str(e)}")
+            
+            # 显示撤销结果
+            msg = QMessageBox()
+            msg.setWindowTitle("撤销结果")
+            msg_text = f"已撤销 {undo_success} 个文件"
+            if undo_errors:
+                msg_text += "\n错误列表:\n" + "\n".join(undo_errors)
+            msg.setText(msg_text)
+            msg.exec()
+            
+            # 删除撤销日志
+            try:
+                self.undo_log_file.unlink()
+            except Exception as e:
+                QMessageBox.warning(self, "警告", f"删除撤销日志失败: {str(e)}")
+
         def save_log(self, log_entries):
             """保存日志文件"""
             log_dir = Path("FilefoldAI_log")
