@@ -1,12 +1,14 @@
+# FilefoldAI/Initialization.py
 import os
 import json
 import platform
 import subprocess
 import google.generativeai as genai
 from pathlib import Path
-from openai import OpenAI  # 新增DeepSeek依赖
+from openai import OpenAI
 
 def check_api_validity(api_key, model_type):
+    """验证API密钥有效性"""
     try:
         if model_type == "gemini":
             genai.configure(api_key=api_key)
@@ -30,6 +32,7 @@ def check_api_validity(api_key, model_type):
         return False
 
 def main():
+    """主初始化函数"""
     data_dir = Path("FilefoldAI_data")
     data_dir.mkdir(exist_ok=True)
     api_file = data_dir / "api.json"
@@ -74,6 +77,7 @@ def main():
     install_dependencies()
 
 def install_dependencies():
+    """安装所需依赖"""
     required_packages = ['google-generativeai', 'pyqt6', 'python-dotenv', 'openai']
     system = platform.system()
     
@@ -81,7 +85,7 @@ def install_dependencies():
     if system == "Linux":
         subprocess.run(["sudo", "apt-get", "install", "-y", "python3-tk"], check=True)
     elif system == "Windows":
-        pass  # 无额外系统依赖
+        pass
 
     # 通用Python包安装
     for pkg in required_packages:
@@ -90,7 +94,7 @@ def install_dependencies():
         except ImportError:
             subprocess.run(["pip", "install", pkg], check=True)
 
-    print(f"初始化完成！请运行 {'linux_Run.py' if system == 'Linux' else 'Windows_Run.py'}")
+    print("初始化完成！请运行 Run.py")  # 统一提示信息
 
 if __name__ == "__main__":
     main()
