@@ -421,7 +421,7 @@ if __name__ == "__main__":
         app = QApplication(sys.argv)
         window = FileOrganizerApp()
         window.show()
-        sys.exit(app.exec_())
+        sys.exit(app.exec())
     else:
         if not AI_AVAILABLE:
             print("❌ 错误：缺少必要的AI模块支持")
